@@ -15,6 +15,7 @@ typedef enum {
     OSDGraphicBacklight                              = 1,//0xfffffff7,
     OSDGraphicEject                                  = 6,
     OSDGraphicNoWiFi                                 = 9,
+    OSDGraphicSpeaker                                = 3,
     //You can reverse these yourself if you need them, it's easy trial-and-error
     /*
      BSGraphicKeyboardBacklightMeter                 = //0xfffffff1,

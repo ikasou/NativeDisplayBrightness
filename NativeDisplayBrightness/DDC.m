@@ -83,11 +83,11 @@ static io_service_t IOFramebufferPortFromCGDisplayID(CGDirectDisplayID displayID
         }
 
         // considering this IOFramebuffer as the match for the CGDisplay, dump out its information
-//        printf("VN:%ld PN:%ld SN:%ld", vendorID, productID, serialNumber);
-//        printf(" UN:%d", CGDisplayUnitNumber(displayID));
-//        printf(" IN:%d", iter);
+        //printf("VN:%ld PN:%ld SN:%ld", vendorID, productID, serialNumber);
+        //printf(" UN:%d", CGDisplayUnitNumber(displayID));
+        //printf(" IN:%d", iter);
         //printf(" Serial:%s\n", CFStringGetCStringPtr(serial, kCFStringEncodingUTF8));
-//        printf(" %s %s\n", name, CFStringGetCStringPtr(location, kCFStringEncodingUTF8));
+        //printf(" %s %s\n", name, CFStringGetCStringPtr(location, kCFStringEncodingUTF8));
         servicePort = serv;
         CFRelease(info);
         break;

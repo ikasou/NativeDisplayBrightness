@@ -16,7 +16,10 @@
 #pragma mark - constants
 
 static NSString *brightnessValuePreferenceKey = @"brightness";
+static NSString *volumeValuePreferenceKey = @"volume";
+
 static const float brightnessStep = 100/16.f;
+static const float volumeStep = 100/16.f;
 
 #pragma mark - variables
 
@@ -41,11 +44,11 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
                              CGEventRef event,
                              void *refcon)
 {
-    //Surpress the F1/F2 key events to prevent other applications from catching it or playing beep sound
+    //Surpress the F1/F2/F10/F11/F12 key events to prevent other applications from catching it or playing beep sound
     if (type == NX_KEYDOWN || type == NX_KEYUP || type == NX_FLAGSCHANGED)
     {
         int64_t keyCode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
-        if (keyCode == kVK_F2 || keyCode == kVK_F1)
+        if (keyCode == kVK_F1 || keyCode == kVK_F2 || keyCode == kVK_F10 || keyCode == kVK_F11 || keyCode == kVK_F12)
         {
             return NULL;
         }
@@ -59,11 +62,14 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
 
 @property (weak) IBOutlet NSWindow *window;
 @property (nonatomic) float brightness;
+@property (nonatomic) float volume;
 @property (strong, nonatomic) dispatch_source_t signalHandlerSource;
 @end
 
 @implementation AppDelegate
 @synthesize brightness=_brightness;
+@synthesize volume=_volume;
+
 
 - (BOOL)_loadBezelServices
 {
@@ -120,6 +126,24 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
                 });
             }
         }
+        else if (event.keyCode == kVK_F11)
+        {
+            if (event.type == NSEventTypeKeyDown)
+            {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self decreaseVolume];
+                });
+            }
+        }
+        else if (event.keyCode == kVK_F12)
+        {
+            if (event.type == NSEventTypeKeyDown)
+            {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self increaseVolume];
+                });
+            }
+        }
     }];
     
     CFRunLoopRef runloop = (CFRunLoopRef)CFRunLoopGetCurrent();
@@ -150,6 +174,21 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
     NSLog(@"Loaded value: %f",_brightness);
 }
 
+- (void)_saveVolume
+{
+    [[NSUserDefaults standardUserDefaults] setFloat:self.volume forKey:volumeValuePreferenceKey];
+}
+
+- (void)_loadVolume
+{
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+                                                              volumeValuePreferenceKey: @(8*volumeStep)
+                                                              }];
+    
+    _volume = [[NSUserDefaults standardUserDefaults] floatForKey:volumeValuePreferenceKey];
+    NSLog(@"Loaded value: %f",_volume);
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
     if (![self _loadBezelServices])
@@ -160,6 +199,7 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
     [self _checkTrusted];
     [self _registerGlobalKeyboardEvents];
     [self _loadBrightness];
+    [self _loadVolume];
     [self _registerSignalHandling];
 }
 
@@ -191,6 +231,7 @@ void shutdownSignalHandler(int signal)
 {
     NSLog(@"willTerminate");
     [self _saveBrightness];
+    [self _saveVolume];
 }
 
 - (BOOL) applicationShouldTerminateAfterLastWindowClosed: (NSApplication*) sender
@@ -239,5 +280,45 @@ void shutdownSignalHandler(int signal)
     self.brightness = MAX(self.brightness-brightnessStep,0);
 }
 
+- (void)setVolume:(float)value
+{
+    _volume = value;
+    
+    CGDirectDisplayID display = CGSMainDisplayID();
+    
+    if (_BSDoGraphicWithMeterAndTimeout != NULL)
+    {
+        // El Capitan and probably older systems
+        _BSDoGraphicWithMeterAndTimeout(display, BSGraphicSpeaker, 0x0, value/100.f, 1);
+    }
+    else {
+        // Sierra+
+        [[NSClassFromString(@"OSDManager") sharedManager] showImage:OSDGraphicSpeaker onDisplayID:CGSMainDisplayID() priority:OSDPriorityDefault msecUntilFade:1000 filledChiclets:value/volumeStep totalChiclets:100.f/volumeStep locked:NO];
+    }
+    
+    for (NSScreen *screen in NSScreen.screens) {
+        NSDictionary *description = [screen deviceDescription];
+        if ([description objectForKey:@"NSDeviceIsScreen"]) {
+            CGDirectDisplayID screenNumber = [[description objectForKey:@"NSScreenNumber"] unsignedIntValue];
+            
+            set_control(screenNumber, AUDIO_SPEAKER_VOLUME, value);
+        }
+    }
+}
+
+- (float)volume
+{
+    return _volume;
+}
+
+- (void)increaseVolume
+{
+    self.volume = MIN(self.volume+volumeStep,100);
+}
+
+- (void)decreaseVolume
+{
+    self.volume = MAX(self.volume-volumeStep,0);
+}
 
 @end
