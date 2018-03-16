@@ -63,20 +63,21 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
 @property (weak) IBOutlet NSWindow *window;
 @property (nonatomic) float brightness;
 @property (nonatomic) float volume;
+@property (nonatomic, getter=isMuted) bool muted;
 @property (strong, nonatomic) dispatch_source_t signalHandlerSource;
 @end
 
 @implementation AppDelegate
 @synthesize brightness=_brightness;
 @synthesize volume=_volume;
-
+@synthesize muted=_muted;
 
 - (BOOL)_loadBezelServices
 {
     // Load BezelServices framework
     void *handle = dlopen("/System/Library/PrivateFrameworks/BezelServices.framework/Versions/A/BezelServices", RTLD_GLOBAL);
     if (!handle) {
-        NSLog(@"Error opening framework");
+        NSLog(@"Error opening BezelServices framework");
         return NO;
     }
     else {
@@ -107,7 +108,6 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
 - (void)_registerGlobalKeyboardEvents
 {
     [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp handler:^(NSEvent *_Nonnull event) {
-        //NSLog(@"event!!");
         if (event.keyCode == kVK_F1)
         {
             if (event.type == NSEventTypeKeyDown)
@@ -123,6 +123,15 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
             {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [self increaseBrightness];
+                });
+            }
+        }
+        else if (event.keyCode == kVK_F10)
+        {
+            if (event.type == NSEventTypeKeyDown)
+            {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self muteVolume];
                 });
             }
         }
@@ -169,9 +178,8 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
     [[NSUserDefaults standardUserDefaults] registerDefaults:@{
         brightnessValuePreferenceKey: @(8*brightnessStep)
     }];
-    
     _brightness = [[NSUserDefaults standardUserDefaults] floatForKey:brightnessValuePreferenceKey];
-    NSLog(@"Loaded value: %f",_brightness);
+    NSLog(@"Loaded brightness value: %f", _brightness);
 }
 
 - (void)_saveVolume
@@ -181,12 +189,9 @@ CGEventRef keyboardCGEventCallback(CGEventTapProxy proxy,
 
 - (void)_loadVolume
 {
-    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
-                                                              volumeValuePreferenceKey: @(8*volumeStep)
-                                                              }];
-    
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{ volumeValuePreferenceKey: @(8*volumeStep) }];
     _volume = [[NSUserDefaults standardUserDefaults] floatForKey:volumeValuePreferenceKey];
-    NSLog(@"Loaded value: %f",_volume);
+    NSLog(@"Loaded volume value: %f", _volume);
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
@@ -221,7 +226,6 @@ void shutdownSignalHandler(int signal)
     signal(SIGTERM, shutdownSignalHandler);
 }
 
-
 - (void)applicationWillTerminate:(NSNotification *)aNotification
 {
     [self _willTerminate];
@@ -239,20 +243,18 @@ void shutdownSignalHandler(int signal)
     return NO;
 }
 
-- (void)setBrightness:(float)value
+- (void)showScreenGraphicAndSetControl:(BSGraphic)aBSGraphic useOSDGraphic:(OSDGraphic)aOSDGraphic useValue:(float)newValue useStep:(float)aStep useControl:(unsigned int)aControl
 {
-    _brightness = value;
-    
     CGDirectDisplayID display = CGSMainDisplayID();
     
     if (_BSDoGraphicWithMeterAndTimeout != NULL)
     {
         // El Capitan and probably older systems
-        _BSDoGraphicWithMeterAndTimeout(display, BSGraphicBacklightMeter, 0x0, value/100.f, 1);
+        _BSDoGraphicWithMeterAndTimeout(display, aBSGraphic, 0x0, newValue/100.f, 1);
     }
     else {
         // Sierra+
-        [[NSClassFromString(@"OSDManager") sharedManager] showImage:OSDGraphicBacklight onDisplayID:CGSMainDisplayID() priority:OSDPriorityDefault msecUntilFade:1000 filledChiclets:value/brightnessStep totalChiclets:100.f/brightnessStep locked:NO];
+        [[NSClassFromString(@"OSDManager") sharedManager] showImage:aOSDGraphic onDisplayID:CGSMainDisplayID() priority:OSDPriorityDefault msecUntilFade:1000 filledChiclets:newValue/aStep totalChiclets:100.f/aStep locked:NO];
     }
     
     for (NSScreen *screen in NSScreen.screens) {
@@ -260,9 +262,16 @@ void shutdownSignalHandler(int signal)
         if ([description objectForKey:@"NSDeviceIsScreen"]) {
             CGDirectDisplayID screenNumber = [[description objectForKey:@"NSScreenNumber"] unsignedIntValue];
             
-            set_control(screenNumber, BRIGHTNESS, value);
+            set_control(screenNumber, aControl, newValue);
         }
     }
+}
+
+
+- (void)setBrightness:(float)value
+{
+    _brightness = value;
+    [self showScreenGraphicAndSetControl:BSGraphicBacklightMeter useOSDGraphic:OSDGraphicBacklight useValue:value useStep:brightnessStep useControl:BRIGHTNESS ];
 }
 
 - (float)brightness
@@ -283,32 +292,23 @@ void shutdownSignalHandler(int signal)
 - (void)setVolume:(float)value
 {
     _volume = value;
-    
-    CGDirectDisplayID display = CGSMainDisplayID();
-    
-    if (_BSDoGraphicWithMeterAndTimeout != NULL)
-    {
-        // El Capitan and probably older systems
-        _BSDoGraphicWithMeterAndTimeout(display, BSGraphicSpeaker, 0x0, value/100.f, 1);
-    }
-    else {
-        // Sierra+
-        [[NSClassFromString(@"OSDManager") sharedManager] showImage:OSDGraphicSpeaker onDisplayID:CGSMainDisplayID() priority:OSDPriorityDefault msecUntilFade:1000 filledChiclets:value/volumeStep totalChiclets:100.f/volumeStep locked:NO];
-    }
-    
-    for (NSScreen *screen in NSScreen.screens) {
-        NSDictionary *description = [screen deviceDescription];
-        if ([description objectForKey:@"NSDeviceIsScreen"]) {
-            CGDirectDisplayID screenNumber = [[description objectForKey:@"NSScreenNumber"] unsignedIntValue];
-            
-            set_control(screenNumber, AUDIO_SPEAKER_VOLUME, value);
-        }
-    }
+    [self showScreenGraphicAndSetControl:BSGraphicSpeaker useOSDGraphic:OSDGraphicSpeaker useValue:value useStep:volumeStep useControl:AUDIO_SPEAKER_VOLUME ];
 }
 
 - (float)volume
 {
     return _volume;
+}
+
+- (void)muteVolume
+{
+    if (self.isMuted) {
+        self.volume = self.volume; // trigger re-setting
+        self.muted = false;
+    } else {
+        [self showScreenGraphicAndSetControl:BSGraphicSpeakerMuted useOSDGraphic:OSDGraphicSpeakerMuted useValue:0.f useStep:volumeStep useControl:AUDIO_SPEAKER_VOLUME ];
+        self.muted = true;
+    }
 }
 
 - (void)increaseVolume
